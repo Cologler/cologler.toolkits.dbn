@@ -45,6 +45,7 @@ class ImagesManager:
             'DateTimeOriginal': dtregex,
             'DateTimeDigitized': dtregex,
         }
+        self._ignore_exts = set()
 
     @property
     def ignored_properties(self):
@@ -55,6 +56,10 @@ class ImagesManager:
         return self._tags_regexs
 
     def add(self, path):
+        ext = os.path.splitext(path)[1].lower()
+        if ext not in ('.jpg', '.jpeg', '.bmp'):
+            self._ignore_exts.add(ext)
+            return
         try:
             assert os.path.isfile(path)
             holder = ImageHolder(self, path)
@@ -64,14 +69,21 @@ class ImagesManager:
         self._images.append(holder)
 
     def complete(self):
-        m = self._images[0].origin_datetime[2]
-        dtargs = [int(x) for x in m.groups()]
-        dt = datetime(*dtargs)
+        if len(self._ignore_exts) > 0:
+            for ext in self._ignore_exts:
+                print('ignore ext: %s' % ext)
+            input('continue?')
+        od = self._images[0].origin_datetime
+        if od is None:
+            dt = datetime.now()
+        else:
+            m = od[2]
+            dtargs = [int(x) for x in m.groups()]
+            dt = datetime(*dtargs)
         for i, t in enumerate(self._images):
             t.set_datetime(dt, i)
         for t in self._images:
             t.save()
-
 
 class ImageHolder:
     def __init__(self, manager, path):
