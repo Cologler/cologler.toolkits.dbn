@@ -57,12 +57,12 @@ class ImagesManager:
 
     def add(self, path):
         ext = os.path.splitext(path)[1].lower()
-        if ext not in ('.jpg', '.jpeg', '.bmp'):
+        if ext not in ('.jpg', '.jpeg', '.bmp', '.png'):
             self._ignore_exts.add(ext)
             return
         try:
             assert os.path.isfile(path)
-            holder = ImageHolder(self, path)
+            holder = ImageHolder(self, path, ext)
         except Exception as e:
             print('Cannot load file: %s' % path)
             raise
@@ -84,30 +84,37 @@ class ImagesManager:
             t.set_datetime(dt, i)
         for t in self._images:
             t.save()
+        for i, t in enumerate(self._images):
+            fn = os.path.split(t._path)[1]
+            print('[%s] %s' % (i, fn))
+
 
 class ImageHolder:
-    def __init__(self, manager, path):
+    def __init__(self, manager, path, ext):
         self._manager = manager
         self._path = path
-        self._exifs = piexif.load(path)
-        self._exif = self._exifs['Exif']
+        self._has_exif = ext != '.png'
         self._tags = {}
-        self._unknownd_tags = []
 
-        for ifd in self._exifs:
-            if ifd == 'thumbnail':
-                continue
-            ex = self._exifs[ifd]
-            for tagid in ex:
-                name = piexif.TAGS[ifd][tagid]["name"]
-                value = ex[tagid]
-                if name in self._manager.ignored_properties:
+        if self._has_exif:
+            self._exifs = piexif.load(path)
+            self._exif = self._exifs['Exif']
+            self._unknownd_tags = []
+
+            for ifd in self._exifs:
+                if ifd == 'thumbnail':
                     continue
-                self.add_property(tagid, name, value)
+                ex = self._exifs[ifd]
+                for tagid in ex:
+                    name = piexif.TAGS[ifd][tagid]["name"]
+                    value = ex[tagid]
+                    if name in self._manager.ignored_properties:
+                        continue
+                    self.add_property(tagid, name, value)
 
-        if len(self._unknownd_tags) > 0:
-            ut = ['%s = %s' % x for x in self._unknownd_tags]
-            raise NotImplementedError('Unknown tag: \n' + '\n'.join(ut))
+            if len(self._unknownd_tags) > 0:
+                ut = ['%s = %s' % x for x in self._unknownd_tags]
+                raise NotImplementedError('Unknown tag: \n' + '\n'.join(ut))
 
         self._origin_datetime = self._tags.get('DateTimeOriginal') or\
                                 self._tags.get('DateTimeDigitized') or\
@@ -127,16 +134,41 @@ class ImageHolder:
         value_str = value.decode('utf8')
         m = regex.match(value_str)
         if not m:
-            raise NotImplementedError
+            raise NotImplementedError('Unknown value: ' + value_str)
         self._tags[name] = (tagid, value_str, m)
 
     def set_datetime(self, datetime, index):
-        datetime = timedelta(0, index) + datetime
-        self._exif[DateTimeOriginalId] = str(datetime).replace('-', ':').encode()
+        self._datetime = timedelta(0, index) + datetime
+        if self._has_exif:
+            v = str(self._datetime).replace('-', ':')
+            if '.' in v:
+                v = v[:v.index('.')]
+            self._exif[DateTimeOriginalId] = v.encode()
 
     def save(self):
-        exif_bytes = piexif.dump(self._exifs)
-        piexif.insert(exif_bytes, self._path)
+        if self._has_exif:
+            exif_bytes = piexif.dump(self._exifs)
+            piexif.insert(exif_bytes, self._path)
+        ts = self._datetime.timestamp()
+        os.utime(self._path, (ts, ts))
+
+
+def orderby(path):
+    d, n = os.path.split(path.lower())
+    ls = []
+    # dir
+    ls.append(d)
+    # name flag
+    ms = ['_']
+    if n[0] in ms:
+        ls.append(ms.index(n[0]))
+    else:
+        ls.append(len(ms))
+    # name
+    for i in n:
+        ls.append(i)
+
+    return tuple(ls)
 
 
 def main(argv=None):
@@ -145,9 +177,10 @@ def main(argv=None):
     try:
         manager = ImagesManager()
         paths = sys.argv[1:]
-        if len(paths) == 1:
-            if os.path.isdir(paths[0]):
-                paths = [os.path.join(paths[0], x) for x in os.listdir(paths[0])]
+        if len(paths) == 1 and os.path.isdir(paths[0]):
+            names = os.listdir(paths[0])
+            paths = [os.path.join(paths[0], x) for x in names]
+        paths.sort(key=orderby)
         for path in paths:
             manager.add(path)
         manager.complete()
