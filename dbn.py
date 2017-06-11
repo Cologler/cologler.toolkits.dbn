@@ -24,8 +24,13 @@ IGNORED_PROPERTIES = [
     'Make', 'Model', 'YCbCrPositioning', 'ExposureMode',
     'GPSTag', 'ExposureTime', 'FlashpixVersion', 'DigitalZoomRatio',
     'FNumber', 'SceneCaptureType', 'WhiteBalance',
-    'ISOSpeedRatings', 'SubSecTimeOriginal', 'SubSecTimeDigitized',
+    'ISOSpeedRatings',
+    'SubSecTime',
+    'SubSecTimeOriginal',
+    'SubSecTimeDigitized',
     'ComponentsConfiguration',
+    'PlanarConfiguration',
+    'HostComputer',
     'ShutterSpeedValue',
     'ApertureValue',
     'ExposureBiasValue',
@@ -33,6 +38,7 @@ IGNORED_PROPERTIES = [
     'LightSource',
     'Flash',
     'MakerNote',
+    'Copyright',
 ]
 
 class ImagesManager:
@@ -146,11 +152,15 @@ class ImageHolder:
             self._exif[DateTimeOriginalId] = v.encode()
 
     def save(self):
-        if self._has_exif:
-            exif_bytes = piexif.dump(self._exifs)
-            piexif.insert(exif_bytes, self._path)
-        ts = self._datetime.timestamp()
-        os.utime(self._path, (ts, ts))
+        try:
+            if self._has_exif:
+                exif_bytes = piexif.dump(self._exifs)
+                piexif.insert(exif_bytes, self._path)
+            ts = self._datetime.timestamp()
+            os.utime(self._path, (ts, ts))
+        except Exception as e:
+            print('error on file: %s' % self._path)
+            raise
 
 
 def orderby(path):
@@ -180,10 +190,13 @@ def main(argv=None):
         if len(paths) == 1 and os.path.isdir(paths[0]):
             names = os.listdir(paths[0])
             paths = [os.path.join(paths[0], x) for x in names]
-        paths.sort(key=orderby)
-        for path in paths:
-            manager.add(path)
-        manager.complete()
+        if paths:
+            paths.sort(key=orderby)
+            for path in paths:
+                manager.add(path)
+            manager.complete()
+        else:
+            print('no files found.')
     except Exception:
         traceback.print_exc()
         input()
